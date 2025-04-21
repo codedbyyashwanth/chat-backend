@@ -50,31 +50,12 @@ const initClients = async () => {
   return { openai, pineconeIndex };
 };
 
-// Enhanced CORS headers helper function - always allows localhost during development
-const setCorsHeaders = (res) => {
-  // Default to allowing all origins during development
-  const allowedOrigin = process.env.FRONTEND_URL || '*';
-  
-  // Check if we need to explicitly allow localhost development servers
-  const origin = res.req.headers.origin;
-  if (origin && (
-    origin.includes('localhost') || 
-    origin.includes('127.0.0.1') || 
-    allowedOrigin === '*'
-  )) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (allowedOrigin !== '*') {
-    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  } else {
-    // Fallback to '*' if no specific origin is matched
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
+// Direct CORS headers - no function wrapping
+const corsHeaders = {
+  'Access-Control-Allow-Credentials': 'true',
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,OPTIONS,PATCH,DELETE,POST,PUT',
+  'Access-Control-Allow-Headers': 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
 };
 
 // Health check handler
@@ -244,42 +225,58 @@ const handleAsk = async (req, res) => {
   }
 };
 
-// Main API handler with routing - with improved CORS and OPTIONS handling
+// Main API handler with routing - with simplified CORS
 export default async function handler(req, res) {
-  // Set CORS headers for all requests
-  setCorsHeaders(res);
+  // Always add CORS headers directly to every response
+  Object.entries(corsHeaders).forEach(([key, value]) => {
+    res.setHeader(key, value);
+  });
 
-  // Handle OPTIONS request for CORS preflight
+  // Log the incoming request details
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} from origin: ${req.headers.origin || 'unknown'}`);
+
+  // Handle OPTIONS request for CORS preflight - must return 200 immediately
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
-  // Extract path from the URL
-  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  const path = url.pathname.replace(/^\/api/, '') || '/';
+  // Extract path from the URL for routing
+  let path = req.url;
   
-  console.log(`Processing request for path: ${path} from origin: ${req.headers.origin || 'unknown'}`);
+  // Handle both /api/path and /path patterns
+  if (path.startsWith('/api/')) {
+    path = path.substring(4); // Remove /api/ prefix
+  }
+  // Remove leading slash if present
+  if (path.startsWith('/')) {
+    path = path.substring(1);
+  }
+  // Extract just the first part of the path
+  path = path.split('?')[0]; // Remove query parameters
+  path = path.split('/')[0]; // Get just the first path segment
+  
+  console.log(`Routing request to handler for: '${path}'`);
 
   // Route based on path
   switch (path) {
-    case '/':
-    case '/health':
+    case '':
+    case 'health':
       return handleHealth(req, res);
     
-    case '/embeddings':
+    case 'embeddings':
       if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
       return handleEmbeddings(req, res);
     
-    case '/ask':
+    case 'ask':
       if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
       }
       return handleAsk(req, res);
     
     default:
-      return res.status(404).json({ error: 'Not found' });
+      return res.status(404).json({ error: `Not found: ${path}` });
   }
 }
