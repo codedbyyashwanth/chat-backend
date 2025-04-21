@@ -50,14 +50,30 @@ const initClients = async () => {
   return { openai, pineconeIndex };
 };
 
-// Set CORS headers helper function
+// Enhanced CORS headers helper function - always allows localhost during development
 const setCorsHeaders = (res) => {
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || '*');
+  // Default to allowing all origins during development
+  const allowedOrigin = process.env.FRONTEND_URL || '*';
+  
+  // Check if we need to explicitly allow localhost development servers
+  const origin = res.req.headers.origin;
+  if (origin && (
+    origin.includes('localhost') || 
+    origin.includes('127.0.0.1') || 
+    allowedOrigin === '*'
+  )) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (allowedOrigin !== '*') {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+  } else {
+    // Fallback to '*' if no specific origin is matched
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  res.setHeader('Access-Control-Allow-Headers', 
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
   );
 };
 
@@ -228,21 +244,22 @@ const handleAsk = async (req, res) => {
   }
 };
 
-// Main API handler with routing
+// Main API handler with routing - with improved CORS and OPTIONS handling
 export default async function handler(req, res) {
   // Set CORS headers for all requests
   setCorsHeaders(res);
 
   // Handle OPTIONS request for CORS preflight
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    res.status(200).end();
+    return;
   }
 
   // Extract path from the URL
-  const url = new URL(req.url, `http://${req.headers.host}`);
+  const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const path = url.pathname.replace(/^\/api/, '') || '/';
   
-  console.log(`Processing request for path: ${path}`);
+  console.log(`Processing request for path: ${path} from origin: ${req.headers.origin || 'unknown'}`);
 
   // Route based on path
   switch (path) {
